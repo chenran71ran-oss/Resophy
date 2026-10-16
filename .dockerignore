@@ -1,0 +1,6 @@
+.git
+AGENTS.md
+**/__pycache__
+.env*
+logs
+data

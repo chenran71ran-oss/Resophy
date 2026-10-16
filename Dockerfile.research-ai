@@ -1,0 +1,18 @@
+FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+WORKDIR /app
+ENV PYTHONPATH=/app HOME=/data/worker-home
+COPY requirements-research-ai.lock ./
+RUN pip install --no-cache-dir -r requirements-research-ai.lock
+COPY resophy/core/base_paper.py resophy/core/base_paper.py
+COPY resophy/core/__init__.py resophy/core/__init__.py
+COPY resophy/research_store.py resophy/research_store.py
+COPY resophy/research_providers.py resophy/research_providers.py
+COPY resophy/research_usage.py resophy/research_usage.py
+COPY resophy/research_parser.py resophy/research_parser.py
+COPY resophy/research_cloud_parser.py resophy/research_cloud_parser.py
+COPY resophy/research_worker.py resophy/research_worker.py
+COPY resophy/babeldoc_runner.py resophy/babeldoc_runner.py
+RUN useradd --uid 1000 --create-home research && mkdir -p /data/worker-home && chown -R research /data
+USER research
+VOLUME /data
+CMD ["python", "-m", "resophy.research_worker"]
