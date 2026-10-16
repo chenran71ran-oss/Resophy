@@ -39,6 +39,8 @@ def options(payload=None):
             'base_url': os.environ.get('RESEARCH_MODEL_BASE_URL', 'https://api.deepseek.com/v1'),
             'parser': os.environ.get('RESEARCH_ANALYSIS_PARSER', 'local_pdf'),
             'source_lang': 'en', 'target_lang': 'zh', 'prompt_version': 'research-v2', 'babeldoc': '0.6.3'}
+    if (payload or {}).get('kind') == 'analysis':
+        configured['parser_contract'] = 'mineru-20261016'
     configured.update(model=model, target_lang=language, analysis_template=template)
     url = urlparse(configured['base_url'])
     if url.scheme != 'https' or url.username or url.password or url.query or url.fragment:

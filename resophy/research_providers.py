@@ -1,4 +1,5 @@
 import hashlib
+import http.client
 import json
 import os
 import subprocess
@@ -26,6 +27,20 @@ def request_bytes(url, method='GET', body=None, headers=None, maximum=12 * 1024 
     if parsed.scheme != 'https' or parsed.username or parsed.password:
         raise ResearchError('provider_url', '外部服务必须使用不含凭证的 HTTPS 地址。')
     try:
+        if method == 'PUT':
+            # OSS signs an absent Content-Type. urllib otherwise adds a form type.
+            connection = http.client.HTTPSConnection(parsed.hostname, parsed.port or 443, timeout=120)
+            try:
+                connection.request('PUT', parsed.path + ('?' + parsed.query if parsed.query else ''), body=body, headers=headers or {})
+                response = connection.getresponse()
+                content = response.read(maximum + 1)
+                if response.status >= 400:
+                    raise ResearchError('provider_http', f'解析文件上传 HTTP {response.status}；未自动重试。')
+                if len(content) > maximum:
+                    raise ResearchError('provider_size', '外部返回结果超过大小限制。')
+                return content
+            finally:
+                connection.close()
         with build_opener(NoRedirect()).open(Request(url, data=body, headers=headers or {}, method=method), timeout=120) as response:
             content = response.read(maximum + 1)
             if len(content) > maximum:
@@ -33,7 +48,7 @@ def request_bytes(url, method='GET', body=None, headers=None, maximum=12 * 1024 
             return content
     except HTTPError as error:
         raise ResearchError('provider_http', f'外部服务 HTTP {error.code}；未自动重试。') from None
-    except (URLError, TimeoutError):
+    except (URLError, TimeoutError, ConnectionError, http.client.HTTPException):
         raise ResearchError('provider_unavailable', '外部请求未完成；可能已计费，请确认后手动重试。') from None
 
 

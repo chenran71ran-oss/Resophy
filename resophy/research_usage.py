@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Content-free, append-only provider usage journal persisted with each task."""
 from datetime import datetime, timezone
 import json

@@ -1,3 +1,5 @@
+# BabelDOC adapter: GNU AGPL v3, matching BabelDOC 0.6.3 (see licenses/).
+# Modified for explicit opt-in, no automatic retries and content-free usage.
 import asyncio
 import os
 import sys
@@ -20,6 +22,8 @@ class ManualRetryTranslator(OpenAITranslator):
         record_usage(os.environ.get('RESEARCH_USAGE_PATH'), 'response_received', self.request_context.call_id, usage)
 
     def _request(self, method, *args, **kwargs):
+        if (args and args[0] is None) or (not args and kwargs.get('text') is None):
+            return method(self, *args, **kwargs)
         self.request_context.call_id = uuid.uuid4().hex
         record_usage(os.environ.get('RESEARCH_USAGE_PATH'), 'request_started', self.request_context.call_id)
         try:

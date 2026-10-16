@@ -1,0 +1,80 @@
+name: Research candidate images
+on:
+  workflow_dispatch:
+    inputs:
+      expected_commit:
+        description: Exact audited source commit
+        required: true
+        type: string
+      version:
+        description: Candidate version (source SHA is appended)
+        default: v0.1.0-rc.1
+        required: true
+        type: string
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: research-images-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository_owner == 'chenran71ran-oss'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+      CANDIDATE_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out exact public source without stored credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_SHA" == "$EXPECTED_COMMIT" ]]
+          [[ "$CANDIDATE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+          git init .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch --depth=1 origin "$EXPECTED_COMMIT"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+      - name: Build and publish fixed candidate images (no model credentials)
+        shell: bash
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          case "$GITHUB_REPOSITORY" in
+            chenran71ran-oss/paperless-ngx) components='paperless-research:Dockerfile.research' ;;
+            chenran71ran-oss/Resophy) components='resophy-research:Dockerfile.research resophy-research-worker:Dockerfile.research-ai' ;;
+            *) exit 1 ;;
+          esac
+          tag="$CANDIDATE_VERSION-${GITHUB_SHA:0:12}"
+          for component in $components; do
+            name="${component%%:*}"
+            dockerfile="${component#*:}"
+            image="ghcr.io/chenran71ran-oss/$name:$tag"
+            if docker manifest inspect "$image" >/dev/null 2>&1; then
+              echo 'Refusing to overwrite an existing candidate image tag'
+              exit 1
+            fi
+            docker build --file "$dockerfile" \
+              --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              --label "org.opencontainers.image.version=$CANDIDATE_VERSION" \
+              --tag "$image" .
+            docker push "$image"
+            export RELEASE_COMPONENT="$name" RELEASE_IMAGE="$image"
+            python3 - <<'PY'
+          import json, os, re, subprocess
+          image=os.environ['RELEASE_IMAGE']
+          digests=json.loads(subprocess.check_output(['docker','image','inspect','--format','{{json .RepoDigests}}',image]))
+          assert len(digests)==1 and re.fullmatch(r'ghcr.io/chenran71ran-oss/[a-z-]+@sha256:[a-f0-9]{64}',digests[0])
+          record={'component':os.environ['RELEASE_COMPONENT'],'tag':image,'reference':digests[0],'source_commit':os.environ['GITHUB_SHA']}
+          line='RELEASE_IMAGE_JSON='+json.dumps(record,separators=(',',':'))
+          print(line)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:f.write('```json\n'+json.dumps(record,indent=2)+'\n```\n')
+          PY
+          done
+          docker logout ghcr.io
